@@ -6,18 +6,18 @@ Created on Tue Sep 19 16:58:14 2017
 """
 
 from moviepy.editor import VideoFileClip
-from IPython.display import HTML
+#from IPython.display import HTML
 import numpy as np
 import cv2
 import pickle
-import glob
+#import glob
 from tracker import tracker
-
 # Read in the saved objpoints and imgpoints
 dist_pickle = pickle.load(open("camera_cal/calibration_pickle.p", "rb"))
 mtx = dist_pickle["mtx"]
 dist = dist_pickle["dist"]
-
+good_frames = 0
+window_centroids_prev = 0
 # abs_sobel_thresh - applies Sobel x or y, 
 # then takes an absolute value and applies a threshold.
 # Note: calling your function with orient='x', thresh_min=5, thresh_max=100
@@ -102,25 +102,23 @@ def window_mask(width, height, img_ref, center, level): # level = vertical slice
 #for idx, fname in enumerate(images):
 
 def process_image(img):
+    global good_frames 
+    global window_centroids_prev
     img = cv2.undistort(img,mtx,dist,None,mtx)
-    
     # predict image and generate binary pixels of interest
     preprocessImage = np.zeros_like(img[:,:,0])
     gradx = abs_sobel_thresh(img, orient = 'x', thresh=(12, 255)) # 12
     grady = abs_sobel_thresh(img, orient = 'y', thresh=(25, 255)) # 25
     c_binary = color_threshold(img, sthresh=(100, 255),vthresh=(50, 255))
     preprocessImage[((gradx ==1) & (grady ==1) | (c_binary ==1))] = 255
-    
     # define perspective transform area - trying to get bottom width of lane = top width (parallel)
     img_size = (img.shape[1],img.shape[0])
     bot_width = 0.76 # % of bottom trapezoid height
     mid_width = 0.08 # % of middle trapezoid height
     height_pct = 0.62 # % for trapezoid height (how far we're looking down the road)
     bottom_trim = 0.945 # % from top to bottom to avoid car hood
-    src = np.float32([[img.shape[1]*(0.5-mid_width/2),img.shape[0]*height_pct],
-                       [img.shape[1]*(0.5+mid_width/2),img.shape[0]*height_pct],
-                       [img.shape[1]*(.5+bot_width/2),img.shape[0]*bottom_trim],
-                       [img.shape[1]*(0.5-bot_width/2), img.shape[0]*bottom_trim]]) 
+    src = np.float32([[img.shape[1]*(0.5-mid_width/2),img.shape[0]*height_pct], [img.shape[1]*(0.5+mid_width/2),img.shape[0]*height_pct],
+                       [img.shape[1]*(.5+bot_width/2),img.shape[0]*bottom_trim],[img.shape[1]*(0.5-bot_width/2), img.shape[0]*bottom_trim]]) 
     offset = img_size[0]*0.25
     dst = np.float32([[offset, 0], [img_size[0]-offset, 0],[img_size[0]-offset, img_size[1]], [offset, img_size[1]]]) 
     
@@ -128,22 +126,26 @@ def process_image(img):
     M = cv2.getPerspectiveTransform(src, dst)
     Minv = cv2.getPerspectiveTransform(dst, src)
     warped = cv2.warpPerspective(preprocessImage, M, img_size, flags = cv2.INTER_LINEAR)
-    # result = warped
     
     window_width = 25
     window_height = 80
-    # Set up overall class todo all the tracking
-    curve_centers = tracker(Mywindow_width = window_width, Mywindow_height = window_height, Mymargin = 25, My_ym = 10/720, My_xm = 4/384, Mysmooth_factor = 20)
+    # Set up overall class to do all the tracking, Originally had My_xm = 4/384
+    curve_centers = tracker(Mywindow_width = window_width, Mywindow_height = window_height, Mymargin = 25, My_ym = 30/720, My_xm = 3.7/520 , Mysmooth_factor = 20)
     window_centroids = curve_centers.find_window_centroids(warped)
-    
+    lane_max_pix = 580
+    if (window_centroids[0][1]-window_centroids[0][0]) > lane_max_pix:
+        print('Rejected lane width of: '+str(window_centroids[0][1]-window_centroids[0][0])+' pixels' )
+        if good_frames > 0:
+            window_centroids = window_centroids_prev 
+    else:
+        window_centroids_prev = window_centroids
+        good_frames = good_frames + 1 
     # Points used to draw all the left and right windows
     l_points = np.zeros_like(warped)
     r_points = np.zeros_like(warped)
-    
     # points used to find the left and right lanes
     rightx = []
     leftx = []
-    
     # Go thru each level and draw the windows
     for level in range(0,len(window_centroids)):
         # Window_mask is a function to draw window areas
@@ -194,14 +196,14 @@ def process_image(img):
     #result = cv2.addWeighted(img, 1.0, road_warped, 1.0, 0.0)
     base = cv2.addWeighted(img, 1.0, road_warped_bkg, -1.0, 0.0)
     result = cv2.addWeighted(base, 1.0, road_warped, 0.7, 0.0)
-    
     ym_per_pix = curve_centers.ym_per_pix # m's per pixel in y dim
     xm_per_pix = curve_centers.xm_per_pix # m's per pixel in x dim
-
-    # find radius of left lane line in real units
+    # find radius of left lane line, then right in real units, then take average
     curve_fit_cr = np.polyfit(np.array(res_yvals, np.float32)*ym_per_pix, np.array(leftx, np.float32)*xm_per_pix, 2)
-    curverad = ((1 + (2*curve_fit_cr[0]*yvals[-1]*ym_per_pix + curve_fit_cr[1])**2)**1.5) / np.absolute(2*curve_fit_cr[0])
-
+    curveradl = ((1 + (2*curve_fit_cr[0]*yvals[-1]*ym_per_pix + curve_fit_cr[1])**2)**1.5) / np.absolute(2*curve_fit_cr[0])
+    curve_fit_cr = np.polyfit(np.array(res_yvals, np.float32)*ym_per_pix, np.array(rightx, np.float32)*xm_per_pix, 2)
+    curveradr = ((1 + (2*curve_fit_cr[0]*yvals[-1]*ym_per_pix + curve_fit_cr[1])**2)**1.5) / np.absolute(2*curve_fit_cr[0])
+    curverad = (curveradl + curveradr)/2
     # calculate the offset of the car in the lane
     camera_center = (left_fitx[-1] + right_fitx[-1])/2 # closest fit points to car
     center_diff = (camera_center-warped.shape[1]/2)*xm_per_pix
@@ -209,18 +211,21 @@ def process_image(img):
     if center_diff <= 0:
         side_pos = 'right'
         
-    # draw the text showing curvature, offset, and speed
+    # draw the text showing curvature and offset
     cv2.putText(result, 'Radius of Curvature = '+str(round(curverad,3))+' (m)', (50,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     cv2.putText(result, 'Vehicle is '+str(abs(round(center_diff,3)))+'m '+side_pos+' of center',(50,100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    
+    # print(str(abs(round(center_diff,3)))+'m '+side_pos+' of center')
+    # print(str(abs(round((right_fitx[-1]-left_fitx[-1]),3)))+' pix width'+str(round(curveradl,3))+' (m) '+str(round(curveradr,3))+' (m)')
+    # print(str(abs(round((left_fitx[-1] + right_fitx[-1])*xm_per_pix,3)))+'m width')
+    # print(str(round(curveradl,2))+'m l, '+str(round(curveradr,2))+'m rt')
     return result
 
 
 
-Output_video = './output/output2_tracked.mp4'
+Output_video = './output3_tracked.mp4'
 Input_video = 'project_video.mp4'
 
-clip1 = VideoFileClip(Input_video)
+clip1 = VideoFileClip(Input_video) #.subclip(29,32)
 video_clip = clip1.fl_image(process_image)  # expects color images
 video_clip.write_videofile(Output_video, audio=False)
 

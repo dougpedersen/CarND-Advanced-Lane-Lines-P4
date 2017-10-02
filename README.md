@@ -79,7 +79,7 @@ Thresholding routines are at lines 25 through 94 in `video_process.py` and the u
 
 #### 3. Description of performed perspective transform and provide an example of a transformed image.
 
-The code for the perspective transform appears in lines 114 through 130 in the file `video_process.py`. The warping code uses an image (`preprocessImage`), as well as source (`src`) and destination (`dst`) points.  The source points were defined parametrically based on a trapezoidal specification of the lane image. The parameters for the trapezoid were in terms of percent of image bottom width, middle width, bottom trim and top height. I lowered the bottom trip 94.5% (cut of 5.5%) so that a little of the car hood was included. This was done because it improved the curve fits close to the car. The destination was set to the middle 50 percent of the image width, and the full height, where the original image size was 1280x720.  
+The code for the perspective transform appears in lines 114 through 128 in the file `video_process.py`. The warping code uses an image (`preprocessImage`), as well as source (`src`) and destination (`dst`) points.  The source points were defined parametrically based on a trapezoidal specification of the lane image. The parameters for the trapezoid were in terms of percent of image bottom width, middle width, bottom trim and top height. I lowered the bottom trip 94.5% (cut of 5.5%) so that a little of the car hood was included. This was done because it improved the curve fits close to the car. The destination was set to the middle 50 percent of the image width, and the full height, where the original image size was 1280x720.  
 
 This resulted in the following source and destination points:
 
@@ -124,6 +124,8 @@ I did this in lines 202 through 214 in my code in `video_process.py`. This code 
 
 Rcurve = (1 + (2Ay + B)^2)^(3/2) / abs(2A)  
 
+The radius was found for both the left and right lanes and then averaged for the video text output.
+
 The position of the camera with respect to the center of the lane was calculated in the same section of code. It averages the ends of the lines closest to the camera and compares this x estimate to the center of the image (width/2).
 
 Both estimates are scaled by rough estimates of m's per pixel and are printed on the output images.
@@ -140,13 +142,18 @@ This step is implemented in lines 178 through 196 in `video_process.py` in the f
 
 #### 1. Link to your video output.  The pipeline performs reasonably well on the entire project video (some wobbly lines, but no catastrophic failures that cause the car to drive off the road).
 
-Here's a [link to my video result](./output2_tracked.mp4)
+## TODO: restrict the right lane line. At about 30.5s it went to the corner.
+Use VideoFileClip("project_video.mp4").subclip(28,33)
+
+Here's a [link to my video result](./output3_tracked.mp4) 
 
 ---
 
 ### Discussion
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+
+After review, I added code in lines 135 through 142 in `video_process.py` to reject lane estimates that are too wide at the bottom of the image.  This was a shortcoming of the original method used. If the lane estimate is too wide, the previous estimate is used. This smoothed the output.
 
 I think it would be helpful to have an indication on confidence. Checking if the convolution did not return a high enough value or that the left and right lane line estimates are not parallel curves would be a good way to eliminate false data. 
 
